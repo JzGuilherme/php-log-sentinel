@@ -1,0 +1,67 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: log_sentinel_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-secret_root_pass}
+      MYSQL_DATABASE: ${DB_DATABASE:-log_sentinel}
+      MYSQL_USER: ${DB_USERNAME:-sentinel_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-secret_user_pass}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - sentinel_mysql_data:/var/lib/mysql
+      - ./database/migrations/001_create_sentinel_tables.sql:/docker-entrypoint-initdb.d/001_create_sentinel_tables.sql:ro
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sentinel_net
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: log_sentinel_app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    env_file:
+      - .env.example
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: tail -f /dev/null
+    networks:
+      - sentinel_net
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: log_sentinel_worker
+    restart: unless-stopped
+    working_dir: /var/www/html
+    env_file:
+      - .env.example
+    volumes:
+      - ./:/var/www/html
+      - ./docker/supervisor/sentinel_worker.conf:/etc/supervisor/conf.d/sentinel_worker.conf:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: /usr/bin/supervisord -c /etc/supervisor/conf.d/sentinel_worker.conf
+    networks:
+      - sentinel_net
+
+volumes:
+  sentinel_mysql_data:
+
+networks:
+  sentinel_net:
+    driver: bridge
