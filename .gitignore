@@ -1,0 +1,22 @@
+# Environment variables & Secrets (ZERO LEAK POLICY)
+.env
+.env.*
+!.env.example
+
+# Dependencies
+/vendor/
+
+# Logs & Runtime
+/logs/*.log
+/logs/
+
+# Testing & Static Analysis Caches
+.phpunit.result.cache
+.phpunit.cache/
+.phpstan.cache/
+
+# IDE & OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
