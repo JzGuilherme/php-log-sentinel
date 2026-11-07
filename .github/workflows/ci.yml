@@ -1,0 +1,70 @@
+name: CI Quality, LGPD Tests & Zero-Leak Security
+
+on:
+  push:
+    branches: [ "main", "develop", "feature/**" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+jobs:
+  secret-scan-and-lint:
+    name: Zero-Leak Policy & PHP Syntax Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Audit Zero-Leak Policy (.env & API Keys)
+        run: |
+          if git ls-files --error-unmatch .env .env.local 2>/dev/null; then
+            echo "::error::CRITICAL: A .env file is tracked by Git! Violates Zero-Leak Policy."
+            exit 1
+          fi
+          if grep -rnE "AIza[0-9A-Za-z_-]{35}" . --exclude-dir=.git --exclude-dir=vendor; then
+            echo "::error::CRITICAL: Hardcoded Google Gemini API Key pattern detected!"
+            exit 1
+          fi
+          echo "Zero-Leak Security check passed."
+
+      - name: Setup PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: curl, json, mbstring, pdo, pdo_mysql, pcntl
+          coverage: none
+
+      - name: Lint all PHP files (php -l)
+        run: |
+          find src bin config tests -type f -name "*.php" -print0 | xargs -0 -n1 php -l
+
+  tests-and-phpstan:
+    name: PHPUnit & PHPStan Level 8 (PHP ${{ matrix.php-version }})
+    needs: secret-scan-and-lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['8.2', '8.3']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP ${{ matrix.php-version }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: curl, json, mbstring, pdo, pdo_mysql, pcntl
+          tools: composer:v2
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run Static Analysis (PHPStan Level 8)
+        run: composer analyse
+
+      - name: Run Unit Test Suite (PHPUnit 10.5)
+        run: composer test
